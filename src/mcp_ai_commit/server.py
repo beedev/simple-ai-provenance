@@ -10,6 +10,7 @@ from pathlib import Path
 import mcp.types as types
 from mcp.server import Server
 from mcp.server.models import InitializationOptions
+from mcp.types import ServerCapabilities, ToolsCapability
 import mcp.server.stdio
 
 from .config import get_config
@@ -21,6 +22,7 @@ from .models import (
 )
 from .ai_client import AIClient
 from .git_operations import GitOperations
+from .interceptor import get_interceptor
 
 
 app = Server("mcp-ai-commit")
@@ -93,6 +95,67 @@ async def handle_list_tools() -> list[types.Tool]:
                     }
                 },
                 "required": ["repo_path"]
+            }
+        ),
+        
+        types.Tool(
+            name="ai_prompt_log",
+            description="Log AI prompt when sent to model (automatic interception)",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "prompt_text": {
+                        "type": "string",
+                        "description": "The prompt being sent to AI model"
+                    },
+                    "context": {
+                        "type": "object",
+                        "description": "Context information (repo_path, model, etc.)"
+                    }
+                },
+                "required": ["prompt_text", "context"]
+            }
+        ),
+        
+        types.Tool(
+            name="ai_response_log", 
+            description="Log AI response when received (automatic interception)",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "exec_id": {
+                        "type": "string",
+                        "description": "Execution ID from prompt log"
+                    },
+                    "response_text": {
+                        "type": "string", 
+                        "description": "The AI response text"
+                    },
+                    "model_info": {
+                        "type": "object",
+                        "description": "Model information (provider, model name, etc.)"
+                    }
+                },
+                "required": ["exec_id", "response_text", "model_info"]
+            }
+        ),
+        
+        types.Tool(
+            name="commit_consolidate",
+            description="Consolidate AI interactions from DB into commit message",
+            inputSchema={
+                "type": "object", 
+                "properties": {
+                    "repo_path": {
+                        "type": "string",
+                        "description": "Repository path"
+                    },
+                    "commit_message": {
+                        "type": "string",
+                        "description": "Original commit message to enhance"
+                    }
+                },
+                "required": ["repo_path", "commit_message"]
             }
         ),
         
@@ -221,6 +284,12 @@ async def handle_call_tool(name: str, arguments: dict) -> list[types.TextContent
         return await handle_validate_repository(arguments)
     elif name == "ai_commit_config":
         return await handle_configuration(arguments)
+    elif name == "ai_prompt_log":
+        return await handle_prompt_log(arguments)
+    elif name == "ai_response_log":
+        return await handle_response_log(arguments)
+    elif name == "commit_consolidate":
+        return await handle_commit_consolidate(arguments)
     else:
         raise ValueError(f"Unknown tool: {name}")
 
@@ -604,6 +673,88 @@ async def handle_configuration(arguments: dict) -> list[types.TextContent]:
         )]
 
 
+async def handle_prompt_log(arguments: dict) -> list[types.TextContent]:
+    """Log AI prompt when sent to model (automatic interception)."""
+    try:
+        prompt_text = arguments["prompt_text"]
+        context = arguments["context"]
+        
+        interceptor = get_interceptor()
+        exec_id = await interceptor.log_prompt(prompt_text, context)
+        
+        return [types.TextContent(
+            type="text",
+            text=json.dumps({
+                "success": True,
+                "exec_id": exec_id,
+                "message": "Prompt logged successfully",
+                "timestamp": datetime.utcnow().isoformat()
+            })
+        )]
+    except Exception as e:
+        return [types.TextContent(
+            type="text",
+            text=json.dumps({
+                "error": f"Failed to log prompt: {str(e)}"
+            })
+        )]
+
+
+async def handle_response_log(arguments: dict) -> list[types.TextContent]:
+    """Log AI response when received (automatic interception)."""
+    try:
+        exec_id = arguments["exec_id"]
+        response_text = arguments["response_text"]
+        model_info = arguments["model_info"]
+        
+        interceptor = get_interceptor()
+        await interceptor.log_response(exec_id, response_text, model_info)
+        
+        return [types.TextContent(
+            type="text",
+            text=json.dumps({
+                "success": True,
+                "exec_id": exec_id,
+                "message": "Response logged successfully",
+                "timestamp": datetime.utcnow().isoformat()
+            })
+        )]
+    except Exception as e:
+        return [types.TextContent(
+            type="text",
+            text=json.dumps({
+                "error": f"Failed to log response: {str(e)}"
+            })
+        )]
+
+
+async def handle_commit_consolidate(arguments: dict) -> list[types.TextContent]:
+    """Consolidate AI interactions from DB into commit message."""
+    try:
+        repo_path = arguments["repo_path"]
+        commit_message = arguments["commit_message"]
+        
+        interceptor = get_interceptor()
+        enhanced_message = await interceptor.consolidate_for_commit(repo_path, commit_message)
+        
+        return [types.TextContent(
+            type="text",
+            text=json.dumps({
+                "success": True,
+                "original_message": commit_message,
+                "enhanced_message": enhanced_message,
+                "message": "Commit message enhanced with AI provenance"
+            })
+        )]
+    except Exception as e:
+        return [types.TextContent(
+            type="text",
+            text=json.dumps({
+                "error": f"Failed to consolidate commit: {str(e)}"
+            })
+        )]
+
+
 async def create_server() -> Server:
     """Create and configure the MCP server."""
     return app
@@ -622,9 +773,9 @@ async def main():
             InitializationOptions(
                 server_name="mcp-ai-commit",
                 server_version="0.1.0",
-                capabilities={
-                    "tools": True
-                }
+                capabilities=ServerCapabilities(
+                    tools=ToolsCapability()
+                )
             )
         )
 

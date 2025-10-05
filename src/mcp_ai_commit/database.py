@@ -280,7 +280,7 @@ class DatabaseManager:
         """Get statistics for a specific repository."""
         async with await self.get_session() as session:
             try:
-                from sqlalchemy import select, func
+                from sqlalchemy import select, func, and_
                 
                 # Total executions
                 total_result = await session.execute(
