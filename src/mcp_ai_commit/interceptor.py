@@ -10,6 +10,7 @@ from pathlib import Path
 
 from .database import get_database
 from .models import ExecutionRecord
+from .model_detection import enhance_context_with_model_detection, get_claude_code_model_info
 
 
 class PromptInterceptor:
@@ -23,6 +24,12 @@ class PromptInterceptor:
         """Log an outgoing prompt to AI model."""
         exec_id = str(uuid.uuid4())
         
+        # Enhance context with automatic model detection
+        enhanced_context = enhance_context_with_model_detection(context.copy())
+        
+        # For Claude Code, use specific model info
+        claude_model_info = get_claude_code_model_info()
+        
         # Store prompt immediately when sent
         db = await get_database()
         
@@ -30,17 +37,17 @@ class PromptInterceptor:
         record = ExecutionRecord(
             exec_id=exec_id,
             timestamp=datetime.utcnow(),
-            repo_path=context.get('repo_path', os.getcwd()),
-            branch_name=context.get('branch_name', 'unknown'),
+            repo_path=enhanced_context.get('repo_path', os.getcwd()),
+            branch_name=enhanced_context.get('branch_name', 'unknown'),
             commit_hash=None,  # Will be set when commit happens
-            model_provider=context.get('model_provider', 'unknown'),
-            model_name=context.get('model_name', 'unknown'),
+            model_provider=claude_model_info['provider'],  # Use detected Claude model
+            model_name=claude_model_info['model'],  # Use detected Claude model
             prompt_text=prompt_text,
             response_text="",  # Will be filled when response comes
             commit_message="",  # Will be filled when commit happens
             files_changed=[],
             execution_successful=False,
-            user_context=context,
+            user_context=enhanced_context,
             performance_metrics={'prompt_tokens': len(prompt_text.split())},
             ai_footer=""
         )
