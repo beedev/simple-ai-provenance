@@ -3,8 +3,8 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "simple-ai-provenance"
-version = "1.0.0"
+name = "mcp-ai-commit"
+version = "0.2.0"
 description = "Simple AI provenance tracking using knowledge graph and PostgreSQL"
 authors = [
     {name = "Bharath Devanathan", email = "bharath@example.com"}
@@ -31,7 +31,7 @@ dev = [
 ]
 
 [project.scripts]
-simple-ai-provenance = "simple_provenance_tracker.mcp_server:main"
+mcp-ai-commit = "simple_provenance_tracker.mcp_server:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

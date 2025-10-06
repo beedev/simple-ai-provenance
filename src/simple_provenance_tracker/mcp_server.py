@@ -89,6 +89,21 @@ async def handle_list_tools() -> list[types.Tool]:
                     }
                 }
             }
+        ),
+        
+        types.Tool(
+            name="install_git_hooks",
+            description="Install git hooks for automatic AI conversation tracking",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "repo_path": {
+                        "type": "string",
+                        "description": "Git repository path",
+                        "default": "."
+                    }
+                }
+            }
         )
     ]
 
@@ -103,6 +118,8 @@ async def handle_call_tool(name: str, arguments: dict) -> list[types.TextContent
         return await handle_commit_with_provenance(arguments)
     elif name == "get_conversation_history":
         return await handle_get_history(arguments)
+    elif name == "install_git_hooks":
+        return await handle_install_git_hooks(arguments)
     else:
         raise ValueError(f"Unknown tool: {name}")
 
@@ -315,6 +332,46 @@ async def handle_get_history(arguments: dict) -> list[types.TextContent]:
             type="text",
             text=json.dumps({
                 "error": f"Failed to get history: {str(e)}"
+            })
+        )]
+
+
+async def handle_install_git_hooks(arguments: dict) -> list[types.TextContent]:
+    """Install git hooks for automatic AI conversation tracking."""
+    try:
+        repo_path = os.path.abspath(arguments.get("repo_path", "."))
+        
+        # Import git hooks module
+        from .git_hooks import install_git_hooks
+        
+        # Install hooks
+        success = install_git_hooks(repo_path)
+        
+        if success:
+            return [types.TextContent(
+                type="text",
+                text=json.dumps({
+                    "success": True,
+                    "message": "Git hooks installed successfully",
+                    "repo_path": repo_path,
+                    "hooks": ["prepare-commit-msg", "post-commit"],
+                    "description": "Commits will now automatically include AI conversation provenance"
+                }, indent=2)
+            )]
+        else:
+            return [types.TextContent(
+                type="text",
+                text=json.dumps({
+                    "error": "Failed to install git hooks",
+                    "repo_path": repo_path
+                })
+            )]
+        
+    except Exception as e:
+        return [types.TextContent(
+            type="text",
+            text=json.dumps({
+                "error": f"Failed to install git hooks: {str(e)}"
             })
         )]
 
