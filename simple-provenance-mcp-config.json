@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "simple-ai-provenance": {
+      "command": "python",
+      "args": ["-m", "simple_provenance_tracker.mcp_server"],
+      "cwd": "/Users/bharath/mcp-ai-commit/src",
+      "env": {
+        "DATABASE_URL": "postgresql://postgres@localhost:5432/pconfig",
+        "DATABASE_SCHEMA": "ai_commit",
+        "PYTHONPATH": "/Users/bharath/mcp-ai-commit/src"
+      }
+    }
+  }
+}

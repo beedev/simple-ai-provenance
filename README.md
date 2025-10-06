@@ -1,526 +1,187 @@
-# MCP AI Commit
+# Simple AI Provenance Tracker
 
-🤖 **AI-powered commit generation with automatic provenance tracking**
+🎯 **Simple, effective AI conversation tracking with automatic commit provenance**
 
-A Model Context Protocol (MCP) server that generates intelligent commit messages using AI while maintaining complete provenance tracking and file scope validation. Designed for integration with Claude Code and hostable for team use.
+A lightweight MCP server that automatically tracks AI conversations from knowledge graph and enhances git commits with complete provenance information.
 
-## ✨ Features
+## ✨ Key Features
 
-### 🎯 Core Capabilities
-- **AI-Powered Commit Generation**: Uses OpenAI/Anthropic models to generate meaningful commit messages
-- **Automatic Provenance Tracking**: Every commit includes execution ID and model information  
-- **File Scope Validation**: `--allowed-paths` security prevents unauthorized file access
-- **Multiple Commit Strategies**: Conventional, semantic, natural language, or custom formats
-- **PostgreSQL Storage**: Configurable database for execution history and provenance
-- **Claude Code Integration**: Built-in hooks for seamless Claude Code workflow
-
-### 🛡️ Security Features
-- **Path Validation**: Configurable allowed/blocked file patterns
-- **Execution Limits**: Maximum files per commit and changes per file
-- **Repository State Validation**: Ensures safe git operations
-- **Permission Checking**: Validates write access before execution
-
-### 📊 Provenance Tracking
-- **Execution Records**: Complete prompt/response logging with unique exec_id
-- **Performance Metrics**: Token usage, execution time, confidence scores
-- **AI Footer**: Automatic append of AI execution details to commits
-- **Search History**: Query executions by repository, success status, etc.
+- **🔍 Auto-Detection**: Monitors knowledge graph for AI conversations
+- **📊 PostgreSQL Storage**: Reuses existing `ai_commit.ai_commit_executions` schema
+- **🤖 Commit Enhancement**: Automatically adds AI provenance to git commits
+- **🛠️ Simple MCP**: Just 3 tools - no complexity
+- **🔄 Background Monitoring**: Runs independently, no manual intervention
 
 ## 🚀 Quick Start
 
 ### 1. Installation
 
 ```bash
-# Clone or download the MCP server
-git clone <repository-url>
-cd mcp-ai-commit
-
-# Install dependencies
+# Install the package
 pip install -e .
 ```
 
-### 2. Configuration
+### 2. Database Setup
+
+The system reuses the existing PostgreSQL schema:
+```bash
+# Ensure PostgreSQL is running with the ai_commit schema
+# Database: postgresql://postgres@localhost:5432/pconfig
+# Schema: ai_commit.ai_commit_executions (already exists)
+```
+
+### 3. Start the System
 
 ```bash
-# Create configuration from template
-cp .env.example .env
-
-# Edit configuration with your settings
-vim .env
+# Start background monitoring
+python start_simple_provenance.py
 ```
 
-**Required Configuration:**
-```env
-# Database (uses your existing PostgreSQL)
-POSTGRES_HOST=localhost
-POSTGRES_PORT=5432
-POSTGRES_DB=your_database
-POSTGRES_USER=your_user
-POSTGRES_PASSWORD=your_password
+### 4. Configure Claude Code MCP
 
-# AI API Keys
-OPENAI_API_KEY=sk-your-openai-key
-ANTHROPIC_API_KEY=sk-ant-your-anthropic-key
-
-# Security Settings
-AI_COMMIT_VALIDATION_LEVEL=strict
-AI_COMMIT_MAX_FILES=50
-```
-
-### 3. Database Setup
-
-The server automatically creates the required schema and tables:
-
-```sql
--- Optional: Create dedicated database
-CREATE DATABASE ai_commit;
-
--- Schema is created automatically on first run
--- Default schema name: ai_commit
-```
-
-### 4. Start MCP Server
-
-```bash
-# Run as MCP server
-python -m mcp_ai_commit.server
-
-# Or use CLI directly
-mcp-ai-commit generate /path/to/repo
-```
-
-## 🔧 Usage
-
-### MCP Server Functions
-
-The server provides 5 main functions for Claude Code integration:
-
-#### `ai_commit_generate`
-Generate AI commit message from staged changes:
-
-```json
-{
-  "repo_path": "/path/to/repository",
-  "model_provider": "openai",
-  "model_name": "gpt-4",
-  "strategy": "conventional",
-  "allowed_paths": ["src/**", "*.py", "*.js"],
-  "validation_level": "strict",
-  "temperature": 0.3,
-  "include_body": true
-}
-```
-
-#### `ai_commit_execute` 
-Execute generated commit with provenance:
-
-```json
-{
-  "exec_id": "uuid-from-generate",
-  "confirm": true,
-  "append_footer": true
-}
-```
-
-#### `ai_commit_validate`
-Validate repository without generating commit:
-
-```json
-{
-  "repo_path": "/path/to/repository",
-  "allowed_paths": ["src/**"],
-  "validation_level": "strict"
-}
-```
-
-#### `ai_commit_history`
-Query execution history:
-
-```json
-{
-  "repo_path": "/path/to/repository",
-  "successful_only": true,
-  "limit": 20
-}
-```
-
-#### `ai_commit_config`
-Get/update configuration:
-
-```json
-{
-  "action": "get"
-}
-```
-
-### CLI Interface
-
-```bash
-# Generate commit message
-mcp-ai-commit generate /path/to/repo \
-  --model gpt-4 \
-  --strategy conventional \
-  --allowed-paths "src/**" "*.py" \
-  --validation-level strict
-
-# Auto-execute commit
-mcp-ai-commit generate /path/to/repo --auto-execute
-
-# View history
-mcp-ai-commit history --repo-path /path/to/repo
-
-# Validate configuration
-mcp-ai-commit config validate
-```
-
-### Example Workflow
-
-```bash
-# 1. Stage your changes
-git add src/feature.py tests/test_feature.py
-
-# 2. Generate AI commit
-mcp-ai-commit generate . --strategy conventional
-
-# Output:
-# ✅ Generated: "feat: add user authentication feature"
-# 📝 Execution ID: a1b2c3d4-e5f6-7890
-
-# 3. Review and execute
-# (CLI prompts for confirmation or use --auto-execute)
-
-# 4. Commit created with AI footer:
-# feat: add user authentication feature
-# 
-# Implements OAuth2 login with Google and GitHub providers
-# 
-# 🤖 Generated with AI
-# Execution ID: a1b2c3d4-e5f6-7890
-# Model: gpt-4
-```
-
-## 🔌 Claude Code Integration
-
-### Automatic Integration
-
-The MCP server automatically integrates with Claude Code when configured:
-
-1. **Add to Claude Code MCP servers list**
-2. **Configure environment variables**
-3. **Enable auto-commit hooks** (optional)
-
-### Manual Integration
-
-Add to your Claude Code configuration:
+Add to your Claude Code MCP configuration:
 
 ```json
 {
   "mcpServers": {
-    "ai-commit": {
+    "simple-ai-provenance": {
       "command": "python",
-      "args": ["-m", "mcp_ai_commit.server"],
+      "args": ["-m", "simple_provenance_tracker.mcp_server"],
+      "cwd": "/path/to/mcp-ai-commit/src",
       "env": {
-        "POSTGRES_HOST": "localhost",
-        "OPENAI_API_KEY": "your-key"
+        "DATABASE_URL": "postgresql://postgres@localhost:5432/pconfig",
+        "DATABASE_SCHEMA": "ai_commit"
       }
     }
   }
 }
 ```
 
-### Claude Code Hooks
+## 🛠️ MCP Tools
 
-The server supports automatic integration with Claude Code's commit workflow:
-
-```python
-# In your Claude Code hooks
-async def on_code_change(files_changed):
-    if should_auto_commit(files_changed):
-        await mcp_call("ai_commit_generate", {
-            "repo_path": get_current_repo(),
-            "allowed_paths": get_project_patterns(),
-            "validation_level": "strict"
-        })
+### `track_conversation`
+Manually track an AI conversation:
+```json
+{
+  "prompt_text": "Can you help me implement authentication?",
+  "response_text": "I'll help you implement secure authentication...",
+  "repo_path": "/path/to/repo",
+  "context": {"source": "manual"}
+}
 ```
 
-## 📁 Configuration Options
-
-### Database Configuration
-
-```env
-# PostgreSQL settings
-POSTGRES_HOST=localhost
-POSTGRES_PORT=5432
-POSTGRES_DB=ai_commit
-POSTGRES_USER=postgres
-POSTGRES_PASSWORD=your_password
-AI_COMMIT_SCHEMA=ai_commit
+### `enhance_commit_with_provenance`
+Enhance a commit message with AI provenance:
+```json
+{
+  "commit_message": "feat: add user authentication",
+  "repo_path": "/path/to/repo"
+}
 ```
 
-### AI Model Configuration
+Returns enhanced commit like:
+```
+feat: add user authentication
 
-```env
-# Provider settings
-AI_COMMIT_DEFAULT_PROVIDER=openai
-AI_COMMIT_DEFAULT_MODEL=gpt-4
-AI_COMMIT_TEMPERATURE=0.3
-AI_COMMIT_MAX_TOKENS=200
+🤖 AI-Generated Content:
+   Prompt: Can you help me implement authentication?
+   Model: claude/sonnet-4
+   ID: a1b2c3d4-e5f6-7890
 
-# API Keys
-OPENAI_API_KEY=sk-your-key
-ANTHROPIC_API_KEY=sk-ant-your-key
+📊 Full provenance available in ai_commit.ai_commit_executions
 ```
 
-### Security Configuration
-
-```env
-# Validation level: strict, warn, permissive
-AI_COMMIT_VALIDATION_LEVEL=strict
-
-# File limits
-AI_COMMIT_MAX_FILES=50
-AI_COMMIT_MAX_CHANGES=1000
+### `get_conversation_history`
+Get conversation history for a repository:
+```json
+{
+  "repo_path": "/path/to/repo",
+  "limit": 10
+}
 ```
 
-### Default File Patterns
-
-**Allowed patterns:**
-```
-src/**, lib/**, app/**, components/**, pages/**, utils/**
-*.py, *.js, *.ts, *.jsx, *.tsx, *.json, *.md, *.yml, *.yaml
-```
-
-**Blocked patterns:**
-```
-.env*, *.key, *.pem, *.p12, secrets/**, credentials/**
-private/**, node_modules/**, .git/**, *.log
-```
-
-## 🏗️ Architecture
-
-### Components
+## 🔄 How It Works
 
 ```
-mcp-ai-commit/
-├── src/mcp_ai_commit/
-│   ├── server.py          # MCP server implementation
-│   ├── ai_client.py       # AI model interactions
-│   ├── database.py        # PostgreSQL provenance storage
-│   ├── validator.py       # File scope validation
-│   ├── git_operations.py  # Git command execution
-│   ├── config.py          # Configuration management
-│   ├── models.py          # Data models
-│   └── cli.py             # Command line interface
-├── .env.example           # Configuration template
-└── README.md
+1. Knowledge Graph Watcher (Background)
+   ↓ Detects AI conversations
+2. Auto-Track to PostgreSQL 
+   ↓ Stores in ai_commit.ai_commit_executions
+3. Claude Code calls enhance_commit_with_provenance
+   ↓ Before creating commits
+4. Enhanced Commit Created
+   ↓ With complete AI provenance
+5. Conversations Marked as Committed
+   ↓ commit_included = true
 ```
 
-### Data Flow
+## 📊 Database Schema
 
-```
-1. Code Changes → Staged Files
-2. File Validation → Security Check
-3. AI Generation → Commit Message
-4. Provenance Storage → Execution Record
-5. Git Execution → Commit with Footer
-6. History Tracking → Searchable Records
-```
+Reuses existing `ai_commit.ai_commit_executions` table:
 
-### Database Schema
+| Column | Type | Purpose |
+|--------|------|---------|
+| `exec_id` | UUID | Unique conversation ID |
+| `prompt_text` | TEXT | AI prompt |
+| `response_text` | TEXT | AI response |
+| `repo_path` | VARCHAR | Git repository |
+| `commit_included` | BOOLEAN | Used in commit? |
+| `final_commit_hash` | VARCHAR | Git commit hash |
+| `user_context` | JSON | Knowledge graph context |
 
-```sql
--- Execution tracking
-CREATE TABLE ai_commit_executions (
-    exec_id UUID PRIMARY KEY,
-    timestamp TIMESTAMP,
-    repo_path VARCHAR(500),
-    branch_name VARCHAR(100),
-    commit_hash VARCHAR(40),
-    model_provider VARCHAR(50),
-    model_name VARCHAR(100),
-    prompt_text TEXT,
-    response_text TEXT,
-    commit_message TEXT,
-    files_changed JSON,
-    execution_successful BOOLEAN,
-    validation_passed BOOLEAN,
-    user_context JSON,
-    performance_metrics JSON
-);
+## 🔧 Configuration
 
--- Configuration storage
-CREATE TABLE ai_commit_configurations (
-    config_id UUID PRIMARY KEY,
-    name VARCHAR(100) UNIQUE,
-    description TEXT,
-    config_data JSON,
-    created_at TIMESTAMP,
-    updated_at TIMESTAMP,
-    is_default BOOLEAN
-);
-```
-
-## 🚀 Deployment
-
-### Local Development
-
+Environment variables:
 ```bash
-# Install in development mode
-pip install -e .
-
-# Run with auto-reload
-python -m mcp_ai_commit.server
+DATABASE_URL=postgresql://postgres@localhost:5432/pconfig
+DATABASE_SCHEMA=ai_commit
+KG_POLL_INTERVAL=10  # Knowledge graph check interval (seconds)
+AUTO_TRACK_ENABLED=true
 ```
 
-### Production Deployment
+## 📁 Project Structure
 
-```bash
-# Install from package
-pip install mcp-ai-commit
-
-# Run as service (systemd example)
-[Unit]
-Description=MCP AI Commit Server
-After=postgresql.service
-
-[Service]
-Type=simple
-User=mcp-user
-WorkingDirectory=/opt/mcp-ai-commit
-Environment=POSTGRES_HOST=localhost
-Environment=OPENAI_API_KEY=your-key
-ExecStart=/opt/mcp-ai-commit/venv/bin/python -m mcp_ai_commit.server
-Restart=always
-
-[Install]
-WantedBy=multi-user.target
+```
+src/
+├── simple_provenance_tracker/
+│   ├── __init__.py
+│   ├── mcp_server.py      # MCP server with 3 tools
+│   ├── kg_watcher.py      # Knowledge graph monitor
+│   └── config.py          # Simple configuration
+├── start_simple_provenance.py  # Startup script
+└── simple-provenance-mcp-config.json  # Claude Code config
 ```
 
-### Docker Deployment
+## 🎯 Design Philosophy
 
-```dockerfile
-FROM python:3.11-slim
+- **Simple > Complex**: 3 MCP tools vs 20+ in old implementation
+- **Reuse > Rebuild**: Leverage existing database schema
+- **Auto > Manual**: Background monitoring vs manual calls
+- **Direct > Abstracted**: Direct database operations vs complex layers
 
-COPY . /app
-WORKDIR /app
+## 🔍 Monitoring
 
-RUN pip install -e .
-
-EXPOSE 8000
-CMD ["python", "-m", "mcp_ai_commit.server"]
+The background watcher logs activity:
+```
+🔍 Knowledge Graph Watcher started...
+📝 Found AI conversation in entity: UserAuthDiscussion
+✅ Auto-tracked AI conversation: a1b2c3d4-e5f6-7890
 ```
 
-### Hosting for Teams
+## ⚡ Performance
 
-```bash
-# Set up shared database
-createdb ai_commit_shared
+- **Lightweight**: Single background process
+- **Efficient**: 10-second polling interval
+- **Fast**: Direct database operations
+- **Scalable**: PostgreSQL backend
 
-# Configure team environment
-export POSTGRES_DB=ai_commit_shared
-export AI_COMMIT_SCHEMA=team_commits
+## 🛡️ Security
 
-# Deploy with nginx proxy
-# Enable multi-user access
-```
+- Uses existing database permissions
+- No sensitive data in knowledge graph
+- Local processing only
+- Configurable file patterns
 
-## 🔒 Security Considerations
+## 📝 License
 
-### File Access Control
-- **Allowed Patterns**: Only specified patterns can be committed
-- **Blocked Patterns**: Sensitive files are automatically excluded
-- **Path Traversal**: Prevention of directory traversal attacks
-- **Permission Validation**: Write access verification before execution
-
-### Data Protection
-- **API Key Security**: Secure environment variable storage
-- **Database Encryption**: Connection encryption with PostgreSQL
-- **Audit Trail**: Complete provenance tracking for compliance
-- **User Context**: Isolation between different users/projects
-
-### Git Safety
-- **Repository Validation**: Ensures clean git state before operations
-- **Staging Verification**: Only staged changes are considered
-- **Rollback Support**: Failed commits don't affect repository state
-- **Branch Protection**: Detached HEAD and merge conflict detection
-
-## 📊 Monitoring & Analytics
-
-### Execution Metrics
-- **Success Rate**: Percentage of successful AI commit generations
-- **Performance**: Average response time and token usage
-- **Usage Patterns**: Most common commit strategies and models
-- **Error Analysis**: Failed execution reasons and frequencies
-
-### Repository Insights
-- **Commit Frequency**: AI-generated vs manual commits
-- **File Patterns**: Most commonly changed file types
-- **Team Usage**: Individual developer adoption rates
-- **Quality Metrics**: Commit message quality scores
-
-## 🤝 Contributing
-
-### Development Setup
-
-```bash
-# Clone repository
-git clone <repository-url>
-cd mcp-ai-commit
-
-# Install development dependencies
-pip install -e ".[dev]"
-
-# Run tests
-pytest
-
-# Format code
-black src/
-ruff check src/
-```
-
-### Testing
-
-```bash
-# Unit tests
-pytest tests/unit/
-
-# Integration tests (requires database)
-pytest tests/integration/
-
-# End-to-end tests
-pytest tests/e2e/
-```
-
-## 📄 License
-
-MIT License - see LICENSE file for details.
-
-## 🆘 Support
-
-### Common Issues
-
-**Database Connection Failed**
-- Verify PostgreSQL is running
-- Check connection credentials in .env
-- Ensure database exists and user has permissions
-
-**AI Generation Failed**
-- Verify API keys are correct
-- Check model availability and rate limits
-- Review custom instructions for validity
-
-**File Validation Errors**
-- Review allowed_paths patterns
-- Check file permissions
-- Verify repository state
-
-### Getting Help
-
-- **Documentation**: See inline code documentation
-- **Issues**: Create GitHub issue with error details
-- **Discussions**: Join community discussions for questions
-- **Email**: Contact maintainers for urgent issues
-
----
-
-**🤖 Built for intelligent, traceable, and secure AI-powered development workflows**
+MIT License

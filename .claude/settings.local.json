@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(lsof:*)",
+      "Bash(pkill:*)",
+      "Bash(kill:*)",
+      "mcp__knowledge-graph__aim_list_databases",
+      "mcp__knowledge-graph__aim_search_nodes",
+      "Bash(psql:*)",
+      "Bash(python:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
