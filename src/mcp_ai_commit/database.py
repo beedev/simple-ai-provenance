@@ -51,6 +51,10 @@ class AICommitExecution(Base):
     validation_passed = Column(Boolean, default=True, nullable=False)
     validation_errors = Column(JSON, nullable=True)  # List of error messages
     
+    # Commit tracking
+    commit_included = Column(Boolean, default=False, nullable=False, index=True)
+    final_commit_hash = Column(String(40), nullable=True, index=True)
+    
     # Performance metrics
     prompt_tokens = Column(Integer, default=0)
     completion_tokens = Column(Integer, default=0)
@@ -211,7 +215,9 @@ class DatabaseManager:
                         'completion_tokens': db_record.completion_tokens,
                         'execution_time_ms': db_record.execution_time_ms
                     },
-                    ai_footer=db_record.ai_footer
+                    ai_footer=db_record.ai_footer,
+                    commit_included=db_record.commit_included,
+                    final_commit_hash=db_record.final_commit_hash
                 )
                 
             except Exception as e:
@@ -268,7 +274,9 @@ class DatabaseManager:
                             'completion_tokens': record.completion_tokens,
                             'execution_time_ms': record.execution_time_ms
                         },
-                        ai_footer=record.ai_footer
+                        ai_footer=record.ai_footer,
+                        commit_included=record.commit_included,
+                        final_commit_hash=record.final_commit_hash
                     )
                     for record in db_records
                 ]

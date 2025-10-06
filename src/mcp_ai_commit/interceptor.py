@@ -90,7 +90,6 @@ class PromptInterceptor:
                     AICommitExecution.exec_id == uuid.UUID(exec_id)
                 ).values(
                     response_text=response_text,
-                    commit_message=response_text,
                     model_provider=model_info.get('provider', existing_record.model_provider),
                     model_name=model_info.get('model', existing_record.model_name),
                     execution_successful=True,
@@ -111,32 +110,19 @@ class PromptInterceptor:
         print(f"✅ Logged response for exec_id: {exec_id}")
     
     async def consolidate_for_commit(self, repo_path: str, commit_message: str) -> str:
-        """Consolidate all recent prompts/responses for this repo into commit footer."""
+        """Consolidate all uncommitted prompts/responses for this repo into commit footer."""
         db = await get_database()
         
-        # Get recent executions for this repo (last 10 minutes)
-        from datetime import timedelta
-        recent_time = datetime.utcnow() - timedelta(minutes=10)
+        # Get all executions for this repo that haven't been included in a commit yet
+        uncommitted_executions = await self._get_uncommitted_executions(db, repo_path)
         
-        executions = await db.search_executions(
-            repo_path=repo_path,
-            successful_only=True,
-            limit=10
-        )
-        
-        # Filter to recent ones
-        recent_executions = [
-            exec for exec in executions 
-            if exec.timestamp > recent_time and exec.response_text
-        ]
-        
-        if not recent_executions:
+        if not uncommitted_executions:
             return commit_message
         
         # Build consolidated footer
         footer_lines = ["\n"]
         
-        for i, exec_record in enumerate(recent_executions[:3]):  # Max 3 recent
+        for i, exec_record in enumerate(uncommitted_executions[:5]):  # Max 5 uncommitted
             footer_lines.append(f"🤖 AI-Generated Content (exec_id: {exec_record.exec_id})")
             footer_lines.append(f"   Model: {exec_record.model_provider}/{exec_record.model_name}")
             footer_lines.append(f"   Prompt: {exec_record.prompt_text[:100]}...")
@@ -148,12 +134,179 @@ class PromptInterceptor:
         
         final_message = commit_message + "\n".join(footer_lines)
         
-        # Update all records with final commit hash (will be set after commit)
-        for exec_record in recent_executions:
-            exec_record.commit_message = final_message
+        # Update the database records with the final commit message
+        await self._update_commit_message_for_executions(db, repo_path, final_message)
         
-        print(f"🔗 Consolidated {len(recent_executions)} AI interactions for commit")
+        print(f"🔗 Consolidated {len(uncommitted_executions)} uncommitted AI interactions for commit")
         return final_message
+    
+    async def _get_uncommitted_executions(self, db, repo_path: str):
+        """Get all executions for this repo that haven't been included in a commit yet."""
+        from sqlalchemy import select, and_
+        from .database import AICommitExecution
+        
+        async with await db.get_session() as session:
+            try:
+                # Query for executions that are successful, have responses, and haven't been committed
+                query = select(AICommitExecution).where(
+                    and_(
+                        AICommitExecution.repo_path == repo_path,
+                        AICommitExecution.execution_successful == True,
+                        AICommitExecution.response_text != "",
+                        AICommitExecution.commit_included == False  # Key: only uncommitted ones
+                    )
+                ).order_by(AICommitExecution.timestamp.desc())
+                
+                result = await session.execute(query)
+                db_records = result.scalars().all()
+                
+                # Convert to ExecutionRecord objects
+                from .models import ExecutionRecord
+                executions = []
+                for record in db_records:
+                    executions.append(ExecutionRecord(
+                        exec_id=str(record.exec_id),
+                        timestamp=record.timestamp,
+                        repo_path=record.repo_path,
+                        branch_name=record.branch_name,
+                        commit_hash=record.commit_hash,
+                        model_provider=record.model_provider,
+                        model_name=record.model_name,
+                        prompt_text=record.prompt_text,
+                        response_text=record.response_text,
+                        commit_message=record.commit_message,
+                        files_changed=record.files_changed,
+                        execution_successful=record.execution_successful,
+                        user_context=record.user_context or {},
+                        performance_metrics={
+                            'prompt_tokens': record.prompt_tokens,
+                            'completion_tokens': record.completion_tokens,
+                            'execution_time_ms': record.execution_time_ms
+                        },
+                        ai_footer=record.ai_footer,
+                        commit_included=record.commit_included,
+                        final_commit_hash=record.final_commit_hash
+                    ))
+                
+                return executions
+                
+            except Exception as e:
+                print(f"❌ Error getting uncommitted executions: {e}")
+                return []
+    
+    async def _update_commit_message_for_executions(self, db, repo_path: str, commit_message: str):
+        """Update uncommitted executions with the final commit message."""
+        from sqlalchemy import update, and_
+        from .database import AICommitExecution
+        
+        async with await db.get_session() as session:
+            try:
+                # Update all uncommitted executions for this repo with the final commit message
+                stmt = update(AICommitExecution).where(
+                    and_(
+                        AICommitExecution.repo_path == repo_path,
+                        AICommitExecution.execution_successful == True,
+                        AICommitExecution.response_text != "",
+                        AICommitExecution.commit_included == False
+                    )
+                ).values(
+                    commit_message=commit_message
+                )
+                
+                result = await session.execute(stmt)
+                await session.commit()
+                
+                print(f"📝 Updated {result.rowcount} executions with final commit message")
+                
+            except Exception as e:
+                await session.rollback()
+                print(f"❌ Error updating commit message: {e}")
+    
+    async def mark_as_committed(self, repo_path: str, commit_hash: str):
+        """Mark all uncommitted executions for this repo as included in the given commit."""
+        db = await get_database()
+        
+        from sqlalchemy import update, and_
+        from .database import AICommitExecution
+        
+        async with await db.get_session() as session:
+            try:
+                # Update all uncommitted executions for this repo
+                stmt = update(AICommitExecution).where(
+                    and_(
+                        AICommitExecution.repo_path == repo_path,
+                        AICommitExecution.execution_successful == True,
+                        AICommitExecution.response_text != "",
+                        AICommitExecution.commit_included == False
+                    )
+                ).values(
+                    commit_included=True,
+                    commit_hash=commit_hash,
+                    final_commit_hash=commit_hash
+                )
+                
+                result = await session.execute(stmt)
+                await session.commit()
+                
+                updated_count = result.rowcount
+                print(f"✅ Marked {updated_count} AI interactions as committed to {commit_hash[:8]}")
+                
+                return updated_count
+                
+            except Exception as e:
+                await session.rollback()
+                print(f"❌ Error marking executions as committed: {e}")
+                return 0
+    
+    async def get_commit_history(self, repo_path: str, limit: int = 10):
+        """Get AI commit history for a repository."""
+        db = await get_database()
+        
+        from sqlalchemy import select
+        from .database import AICommitExecution
+        
+        async with await db.get_session() as session:
+            try:
+                query = select(AICommitExecution).where(
+                    AICommitExecution.repo_path == repo_path
+                ).order_by(AICommitExecution.timestamp.desc()).limit(limit)
+                
+                result = await session.execute(query)
+                db_records = result.scalars().all()
+                
+                # Convert to ExecutionRecord objects
+                from .models import ExecutionRecord
+                history = []
+                for record in db_records:
+                    history.append(ExecutionRecord(
+                        exec_id=str(record.exec_id),
+                        timestamp=record.timestamp,
+                        repo_path=record.repo_path,
+                        branch_name=record.branch_name,
+                        commit_hash=record.commit_hash,
+                        model_provider=record.model_provider,
+                        model_name=record.model_name,
+                        prompt_text=record.prompt_text,
+                        response_text=record.response_text,
+                        commit_message=record.commit_message,
+                        files_changed=record.files_changed,
+                        execution_successful=record.execution_successful,
+                        user_context=record.user_context or {},
+                        performance_metrics={
+                            'prompt_tokens': record.prompt_tokens,
+                            'completion_tokens': record.completion_tokens,
+                            'execution_time_ms': record.execution_time_ms
+                        },
+                        ai_footer=record.ai_footer,
+                        commit_included=record.commit_included,
+                        final_commit_hash=record.final_commit_hash
+                    ))
+                
+                return history
+                
+            except Exception as e:
+                print(f"❌ Error getting commit history: {e}")
+                return []
 
 
 # Global interceptor instance
