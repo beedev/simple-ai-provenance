@@ -1,3 +1,3 @@
-"""Simple AI Provenance Tracker - Reusing existing AI Commit schema."""
+"""Simple AI Provenance Tracker - Track every prompt, annotate every commit."""
 
-__version__ = "1.0.0"
+__version__ = "3.0.0"

@@ -3,53 +3,34 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "mcp-ai-commit"
-version = "0.2.0"
-description = "Simple AI provenance tracking using knowledge graph and PostgreSQL"
+name = "simple-ai-provenance"
+version = "3.0.0"
+description = "Track AI prompts per session and annotate git commits with provenance"
 authors = [
-    {name = "Bharath Devanathan", email = "bharath@example.com"}
+    {name = "Bharath Devanathan"}
 ]
 readme = "README.md"
 requires-python = ">=3.9"
 license = {text = "MIT"}
-keywords = ["mcp", "ai", "provenance", "knowledge-graph", "postgresql"]
-
+keywords = ["mcp", "ai", "provenance", "claude", "git"]
 dependencies = [
-    "mcp>=1.0.0",
-    "asyncpg>=0.29.0",
-    "sqlalchemy>=2.0.0",
-    "python-dotenv>=1.0.0"
+    "mcp>=1.0.0"
 ]
+
+[project.scripts]
+# MCP server — used by Claude Desktop / Claude Code MCP config
+simple-ai-provenance = "simple_provenance_tracker.mcp_server:run"
+# One-command installer
+provenance-setup      = "simple_provenance_tracker.install:main"
 
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
-    "black>=23.0.0",
-    "mypy>=1.0.0",
-    "ruff>=0.1.0"
 ]
-
-[project.scripts]
-mcp-ai-commit = "simple_provenance_tracker.mcp_server:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-dir]
 "" = "src"
-
-[tool.black]
-line-length = 88
-target-version = ['py39']
-
-[tool.ruff]
-line-length = 88
-target-version = "py39"
-select = ["E", "F", "I", "N", "W", "UP"]
-
-[tool.mypy]
-python_version = "3.9"
-strict = true
-warn_return_any = true
-warn_unused_configs = true

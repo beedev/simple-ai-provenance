@@ -1,187 +1,147 @@
-# Simple AI Provenance Tracker
+# simple-ai-provenance
 
-🎯 **Simple, effective AI conversation tracking with automatic commit provenance**
+Track every AI prompt you send in Claude Code, annotate git commits with what was asked, and query the full history of any session.
 
-A lightweight MCP server that automatically tracks AI conversations from knowledge graph and enhances git commits with complete provenance information.
+## What it does
 
-## ✨ Key Features
+- **Auto-captures every prompt** you send in Claude Code via a hook — no manual steps
+- **Annotates commits** with the prompts that produced the code, via global git hooks
+- **Answers "what did I do in this session?"** through MCP tools callable inside Claude
+- **Stays compact** — commit messages switch from verbose (all prompts) to condensed (summary) above a configurable threshold
 
-- **🔍 Auto-Detection**: Monitors knowledge graph for AI conversations
-- **📊 PostgreSQL Storage**: Reuses existing `ai_commit.ai_commit_executions` schema
-- **🤖 Commit Enhancement**: Automatically adds AI provenance to git commits
-- **🛠️ Simple MCP**: Just 3 tools - no complexity
-- **🔄 Background Monitoring**: Runs independently, no manual intervention
-
-## 🚀 Quick Start
-
-### 1. Installation
+## Install
 
 ```bash
-# Install the package
-pip install -e .
+pip install simple-ai-provenance
+provenance-setup
 ```
 
-### 2. Database Setup
+Then **restart Claude Code and Claude Desktop**.
 
-The system reuses the existing PostgreSQL schema:
-```bash
-# Ensure PostgreSQL is running with the ai_commit schema
-# Database: postgresql://postgres@localhost:5432/pconfig
-# Schema: ai_commit.ai_commit_executions (already exists)
+That's it. Every prompt from that point forward is recorded automatically.
+
+## How it works
+
+```
+You type a prompt
+    ↓
+UserPromptSubmit hook fires → written to ~/.claude/provenance/provenance.db
+    ↓
+Claude works...
+    ↓
+git commit -m "fix: ..."
+    ↓
+prepare-commit-msg hook appends AI provenance block
+    ↓
+post-commit hook marks those prompts as committed
 ```
 
-### 3. Start the System
+### Commit message (≤ 5 prompts — verbose)
 
-```bash
-# Start background monitoring
-python start_simple_provenance.py
+```
+fix: auth bug
+
+# ── AI Provenance ──────────────────────────────────────────
+#
+# Session 1  (2026-02-26 14:30, id: a1b2c3d4, 3 prompts)
+#   • fix the auth bug in login.py
+#   • add error handling for the edge cases
+#   • write unit tests for the new endpoints
+#
+# Files: src/auth/login.py, tests/test_auth.py
+#
+# ─────────────────────────────────────────────────────────
 ```
 
-### 4. Configure Claude Code MCP
+### Commit message (> 5 prompts — condensed)
 
-Add to your Claude Code MCP configuration:
+```
+refactor: connection pooling
+
+# ── AI Provenance ──────────────────────────────────────────
+#
+# 12 prompts · 2 sessions over 1h 23m
+#
+# Session 1  (09:00, id: a1b2c3d4, 5 prompts)
+# Session 2  (10:30, id: e5f6g7h8, 7 prompts)
+#
+# First: refactor the database connection pooling module
+# Last:  add retry logic with exponential backoff
+#
+# Full history: call get_session_summary in Claude
+# Files: src/db/pool.py, src/db/retry.py (+3 more)
+#
+# ─────────────────────────────────────────────────────────
+```
+
+The `#` lines are git comment lines — visible in your editor but not stored in the final commit message.
+
+## MCP Tools
+
+Once installed, these tools are available inside any Claude session:
+
+| Tool | What it does |
+|---|---|
+| `get_session_summary` | Prompts + files touched + tools used for a session |
+| `get_uncommitted_work` | All prompts since last commit, grouped by session |
+| `generate_commit_context` | Formatted provenance block for a commit message |
+| `mark_committed` | Mark pending prompts as committed (auto-called by git hook) |
+| `list_sessions` | Recent sessions with prompt counts |
+| `configure` | Get or set config (e.g. `verbose_threshold`) |
+
+## Configuration
+
+Config lives at `~/.claude/simple-ai-provenance-config.json`:
 
 ```json
 {
-  "mcpServers": {
-    "simple-ai-provenance": {
-      "command": "python",
-      "args": ["-m", "simple_provenance_tracker.mcp_server"],
-      "cwd": "/path/to/mcp-ai-commit/src",
-      "env": {
-        "DATABASE_URL": "postgresql://postgres@localhost:5432/pconfig",
-        "DATABASE_SCHEMA": "ai_commit"
-      }
-    }
+  "settings": {
+    "verbose_threshold": 5
   }
 }
 ```
 
-## 🛠️ MCP Tools
-
-### `track_conversation`
-Manually track an AI conversation:
-```json
-{
-  "prompt_text": "Can you help me implement authentication?",
-  "response_text": "I'll help you implement secure authentication...",
-  "repo_path": "/path/to/repo",
-  "context": {"source": "manual"}
-}
-```
-
-### `enhance_commit_with_provenance`
-Enhance a commit message with AI provenance:
-```json
-{
-  "commit_message": "feat: add user authentication",
-  "repo_path": "/path/to/repo"
-}
-```
-
-Returns enhanced commit like:
-```
-feat: add user authentication
-
-🤖 AI-Generated Content:
-   Prompt: Can you help me implement authentication?
-   Model: claude/sonnet-4
-   ID: a1b2c3d4-e5f6-7890
-
-📊 Full provenance available in ai_commit.ai_commit_executions
-```
-
-### `get_conversation_history`
-Get conversation history for a repository:
-```json
-{
-  "repo_path": "/path/to/repo",
-  "limit": 10
-}
-```
-
-## 🔄 How It Works
+Change it via the MCP tool inside Claude:
 
 ```
-1. Knowledge Graph Watcher (Background)
-   ↓ Detects AI conversations
-2. Auto-Track to PostgreSQL 
-   ↓ Stores in ai_commit.ai_commit_executions
-3. Claude Code calls enhance_commit_with_provenance
-   ↓ Before creating commits
-4. Enhanced Commit Created
-   ↓ With complete AI provenance
-5. Conversations Marked as Committed
-   ↓ commit_included = true
+configure verbose_threshold=10
 ```
 
-## 📊 Database Schema
+Or directly edit the JSON file.
 
-Reuses existing `ai_commit.ai_commit_executions` table:
+## Requirements
 
-| Column | Type | Purpose |
-|--------|------|---------|
-| `exec_id` | UUID | Unique conversation ID |
-| `prompt_text` | TEXT | AI prompt |
-| `response_text` | TEXT | AI response |
-| `repo_path` | VARCHAR | Git repository |
-| `commit_included` | BOOLEAN | Used in commit? |
-| `final_commit_hash` | VARCHAR | Git commit hash |
-| `user_context` | JSON | Knowledge graph context |
+- Python 3.9+
+- Claude Code (Claude CLI)
+- Claude Desktop (optional — for MCP tools in the desktop app)
+- Git
 
-## 🔧 Configuration
+## How sessions are scoped
 
-Environment variables:
+Each Claude Code session is automatically scoped to the git repository detected from the working directory. Prompts from different projects never mix.
+
+```
+Session in ~/projects/api  → recorded under repo /Users/you/projects/api
+Session in ~/projects/web  → recorded under repo /Users/you/projects/web
+```
+
+## Uninstall
+
 ```bash
-DATABASE_URL=postgresql://postgres@localhost:5432/pconfig
-DATABASE_SCHEMA=ai_commit
-KG_POLL_INTERVAL=10  # Knowledge graph check interval (seconds)
-AUTO_TRACK_ENABLED=true
+# Remove git hooks
+git config --global --unset core.hooksPath
+
+# Remove the UserPromptSubmit block from ~/.claude/settings.json
+
+# Remove the simple-ai-provenance entry from Claude Desktop config
+
+# Remove data (optional)
+rm -rf ~/.claude/provenance/
+rm ~/.claude/simple-ai-provenance-config.json
+
+pip uninstall simple-ai-provenance
 ```
 
-## 📁 Project Structure
+## License
 
-```
-src/
-├── simple_provenance_tracker/
-│   ├── __init__.py
-│   ├── mcp_server.py      # MCP server with 3 tools
-│   ├── kg_watcher.py      # Knowledge graph monitor
-│   └── config.py          # Simple configuration
-├── start_simple_provenance.py  # Startup script
-└── simple-provenance-mcp-config.json  # Claude Code config
-```
-
-## 🎯 Design Philosophy
-
-- **Simple > Complex**: 3 MCP tools vs 20+ in old implementation
-- **Reuse > Rebuild**: Leverage existing database schema
-- **Auto > Manual**: Background monitoring vs manual calls
-- **Direct > Abstracted**: Direct database operations vs complex layers
-
-## 🔍 Monitoring
-
-The background watcher logs activity:
-```
-🔍 Knowledge Graph Watcher started...
-📝 Found AI conversation in entity: UserAuthDiscussion
-✅ Auto-tracked AI conversation: a1b2c3d4-e5f6-7890
-```
-
-## ⚡ Performance
-
-- **Lightweight**: Single background process
-- **Efficient**: 10-second polling interval
-- **Fast**: Direct database operations
-- **Scalable**: PostgreSQL backend
-
-## 🛡️ Security
-
-- Uses existing database permissions
-- No sensitive data in knowledge graph
-- Local processing only
-- Configurable file patterns
-
-## 📝 License
-
-MIT License
+MIT

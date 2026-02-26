@@ -1,403 +1,173 @@
-"""Simple MCP Server for AI Provenance Tracking using existing schema."""
-
-import asyncio
-import json
-import uuid
-import os
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+"""MCP Server for AI Provenance Tracking."""
 
 import mcp.types as types
 from mcp.server import Server
 from mcp.server.models import InitializationOptions
 import mcp.server.stdio
 
-# Use local database module
-from .database import DatabaseManager, AICommitExecution, get_database
+from .mcp_tools import MCPToolHandlers
 
 
 app = Server("simple-ai-provenance")
+tool_handlers = MCPToolHandlers()
 
 
 @app.list_tools()
 async def handle_list_tools() -> list[types.Tool]:
-    """List available provenance tracking tools."""
     return [
         types.Tool(
-            name="track_conversation",
-            description="Track AI conversation for provenance (from knowledge graph)",
+            name="get_session_summary",
+            description=(
+                "Get a summary of what was done in a session: prompts sent, "
+                "files touched, tools used. Defaults to the most recent session."
+            ),
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "prompt_text": {
+                    "session_id": {
                         "type": "string",
-                        "description": "The AI prompt text"
-                    },
-                    "response_text": {
-                        "type": "string", 
-                        "description": "The AI response text"
+                        "description": "Session ID to summarise. Omit for the most recent session.",
                     },
                     "repo_path": {
                         "type": "string",
-                        "description": "Git repository path",
-                        "default": "."
+                        "description": "Git repo path. Auto-detects from cwd if omitted.",
                     },
-                    "context": {
-                        "type": "object",
-                        "description": "Additional context from knowledge graph"
-                    }
                 },
-                "required": ["prompt_text", "response_text"]
-            }
+            },
         ),
-        
         types.Tool(
-            name="commit_with_provenance",
-            description="Perform git commit with automatic AI provenance enhancement",
+            name="get_uncommitted_work",
+            description=(
+                "Get all AI prompts and git file changes since the last commit. "
+                "Use this before committing to see what provenance to include."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "repo_path": {
+                        "type": "string",
+                        "description": "Git repo path. Auto-detects from cwd if omitted.",
+                    },
+                },
+            },
+        ),
+        types.Tool(
+            name="generate_commit_context",
+            description=(
+                "Generate a formatted provenance block for a commit message. "
+                "Lists each prompt by session, plus files changed."
+            ),
             inputSchema={
                 "type": "object",
                 "properties": {
                     "commit_message": {
                         "type": "string",
-                        "description": "Original commit message"
+                        "description": "Your base commit message. Provenance is appended below it.",
                     },
                     "repo_path": {
-                        "type": "string", 
-                        "description": "Git repository path",
-                        "default": "."
-                    }
+                        "type": "string",
+                        "description": "Git repo path. Auto-detects from cwd if omitted.",
+                    },
                 },
-                "required": ["commit_message"]
-            }
+            },
         ),
-        
         types.Tool(
-            name="get_conversation_history",
-            description="Get AI conversation history for a repository",
+            name="mark_committed",
+            description=(
+                "Mark all uncommitted prompts for this repository as committed. "
+                "Call this after running git commit."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "commit_hash": {
+                        "type": "string",
+                        "description": "The git commit hash. Auto-reads HEAD if omitted.",
+                    },
+                    "repo_path": {
+                        "type": "string",
+                        "description": "Git repo path. Auto-detects from cwd if omitted.",
+                    },
+                },
+            },
+        ),
+        types.Tool(
+            name="list_sessions",
+            description="List recent sessions recorded for this repository with prompt counts.",
             inputSchema={
                 "type": "object",
                 "properties": {
                     "repo_path": {
                         "type": "string",
-                        "description": "Git repository path",
-                        "default": "."
+                        "description": "Git repo path. Auto-detects from cwd if omitted.",
                     },
                     "limit": {
                         "type": "integer",
-                        "description": "Number of conversations to return",
-                        "default": 10
-                    }
-                }
-            }
+                        "description": "Max number of sessions to return (default 10).",
+                        "default": 10,
+                    },
+                },
+            },
         ),
-        
         types.Tool(
-            name="install_git_hooks",
-            description="Install git hooks for automatic AI conversation tracking",
+            name="configure",
+            description=(
+                "Get or set provenance settings. "
+                "Call with no arguments to see current config. "
+                "Pass verbose_threshold to change when commit messages switch from verbose to condensed."
+            ),
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "repo_path": {
-                        "type": "string",
-                        "description": "Git repository path",
-                        "default": "."
-                    }
-                }
-            }
-        )
+                    "verbose_threshold": {
+                        "type": "integer",
+                        "description": (
+                            "Prompts per commit below which every prompt is shown verbatim. "
+                            "Above this count the message shows a condensed summary. Default: 5."
+                        ),
+                    },
+                },
+            },
+        ),
     ]
 
 
 @app.call_tool()
 async def handle_call_tool(name: str, arguments: dict) -> list[types.TextContent]:
-    """Handle tool calls."""
-    
-    if name == "track_conversation":
-        return await handle_track_conversation(arguments)
-    elif name == "commit_with_provenance":
-        return await handle_commit_with_provenance(arguments)
-    elif name == "get_conversation_history":
-        return await handle_get_history(arguments)
-    elif name == "install_git_hooks":
-        return await handle_install_git_hooks(arguments)
+    if name == "get_session_summary":
+        return await tool_handlers.handle_get_session_summary(arguments)
+    elif name == "get_uncommitted_work":
+        return await tool_handlers.handle_get_uncommitted_work(arguments)
+    elif name == "generate_commit_context":
+        return await tool_handlers.handle_generate_commit_context(arguments)
+    elif name == "mark_committed":
+        return await tool_handlers.handle_mark_committed(arguments)
+    elif name == "list_sessions":
+        return await tool_handlers.handle_list_sessions(arguments)
+    elif name == "configure":
+        return await tool_handlers.handle_configure(arguments)
     else:
         raise ValueError(f"Unknown tool: {name}")
 
 
-async def handle_track_conversation(arguments: dict) -> list[types.TextContent]:
-    """Track AI conversation in database using existing schema."""
-    try:
-        prompt_text = arguments["prompt_text"]
-        response_text = arguments["response_text"]
-        repo_path = os.path.abspath(arguments.get("repo_path", "."))
-        context = arguments.get("context", {})
-        
-        # Get current git branch
-        branch_name = _get_current_branch(repo_path)
-        
-        # Get database manager
-        db = await get_database()
-        
-        # Generate execution ID
-        exec_id = uuid.uuid4()
-        
-        # Create execution record using existing schema
-        execution = AICommitExecution(
-            exec_id=exec_id,
-            timestamp=datetime.now(timezone.utc),
-            repo_path=repo_path,
-            branch_name=branch_name,
-            model_provider="claude",  # Detected from knowledge graph
-            model_name="sonnet-4",   # Detected from knowledge graph
-            prompt_text=prompt_text,
-            response_text=response_text,
-            commit_message="",  # Will be set when commit happens
-            files_changed=[],   # Will be populated during commit
-            execution_successful=True,
-            validation_passed=True,
-            commit_included=False,  # Not yet included in any commit
-            user_context=context,
-            ai_footer=f"🤖 AI Conversation (ID: {exec_id})"
-        )
-        
-        # Store in database
-        await db.store_execution(execution)
-        
-        return [types.TextContent(
-            type="text",
-            text=json.dumps({
-                "success": True,
-                "exec_id": str(exec_id),
-                "message": "AI conversation tracked successfully",
-                "repo_path": repo_path,
-                "branch": branch_name,
-                "timestamp": datetime.now(timezone.utc).isoformat()
-            }, indent=2)
-        )]
-        
-    except Exception as e:
-        return [types.TextContent(
-            type="text",
-            text=json.dumps({
-                "error": f"Failed to track conversation: {str(e)}"
-            })
-        )]
-
-
-async def handle_commit_with_provenance(arguments: dict) -> list[types.TextContent]:
-    """Complete git commit with automatic AI provenance enhancement."""
-    try:
-        original_message = arguments["commit_message"]
-        repo_path = os.path.abspath(arguments.get("repo_path", "."))
-        
-        # Get database manager
-        db = await get_database()
-        
-        # Get all uncommitted conversations for this repo
-        conversations = await db.get_uncommitted_executions(repo_path)
-        
-        # Build enhanced commit message automatically
-        if conversations:
-            enhanced_lines = [original_message, ""]
-            
-            if len(conversations) == 1:
-                conv = conversations[0]
-                enhanced_lines.extend([
-                    "🤖 AI-Generated Content:",
-                    f"   Prompt: {conv.prompt_text[:80]}{'...' if len(conv.prompt_text) > 80 else ''}",
-                    f"   Model: {conv.model_provider}/{conv.model_name}",
-                    f"   ID: {conv.exec_id}",
-                    ""
-                ])
-            else:
-                enhanced_lines.extend([
-                    f"🤖 {len(conversations)} AI Conversations Included:",
-                    ""
-                ])
-                for i, conv in enumerate(conversations[:3], 1):
-                    enhanced_lines.extend([
-                        f"   {i}. {conv.prompt_text[:60]}{'...' if len(conv.prompt_text) > 60 else ''}",
-                        f"      ID: {conv.exec_id}",
-                        ""
-                    ])
-                if len(conversations) > 3:
-                    enhanced_lines.append(f"   ... and {len(conversations) - 3} more")
-                enhanced_lines.append("")
-            
-            enhanced_lines.append("📊 Full provenance available in ai_commit.ai_commit_executions")
-            final_message = "\n".join(enhanced_lines)
-        else:
-            final_message = original_message
-        
-        # Perform the actual git commit
-        import subprocess
-        try:
-            # Stage all changes
-            subprocess.run(["git", "add", "."], cwd=repo_path, check=True)
-            
-            # Commit with enhanced message
-            result = subprocess.run(
-                ["git", "commit", "-m", final_message], 
-                cwd=repo_path, 
-                capture_output=True, 
-                text=True, 
-                check=True
-            )
-            
-            # Get the commit hash
-            commit_hash_result = subprocess.run(
-                ["git", "rev-parse", "HEAD"], 
-                cwd=repo_path, 
-                capture_output=True, 
-                text=True, 
-                check=True
-            )
-            commit_hash = commit_hash_result.stdout.strip()
-            
-            # NOW mark conversations as committed
-            if conversations:
-                exec_ids = [str(conv.exec_id) for conv in conversations]
-                await db.mark_executions_committed(exec_ids, commit_hash, final_message)
-            
-            return [types.TextContent(
-                type="text",
-                text=json.dumps({
-                    "success": True,
-                    "commit_hash": commit_hash,
-                    "final_message": final_message,
-                    "conversations_included": len(conversations),
-                    "message": f"Committed with {len(conversations)} AI conversations tracked"
-                }, indent=2)
-            )]
-            
-        except subprocess.CalledProcessError as e:
-            return [types.TextContent(
-                type="text",
-                text=json.dumps({
-                    "error": f"Git commit failed: {e.stderr or e.stdout}"
-                })
-            )]
-        
-    except Exception as e:
-        return [types.TextContent(
-            type="text",
-            text=json.dumps({
-                "error": f"Failed to commit with provenance: {str(e)}"
-            })
-        )]
-
-
-async def handle_get_history(arguments: dict) -> list[types.TextContent]:
-    """Get AI conversation history for a repository."""
-    try:
-        repo_path = os.path.abspath(arguments.get("repo_path", "."))
-        limit = arguments.get("limit", 10)
-        
-        # Get database manager
-        db = await get_database()
-        
-        # For now, get all conversations (we can add a method later for repo-specific history)
-        from sqlalchemy import select
-        async with await db.get_session() as session:
-            query = select(AICommitExecution).where(
-                AICommitExecution.repo_path == repo_path
-            ).order_by(AICommitExecution.timestamp.desc()).limit(limit)
-            
-            result = await session.execute(query)
-            conversations = result.scalars().all()
-            
-            history = []
-            for conv in conversations:
-                history.append({
-                    "exec_id": str(conv.exec_id),
-                    "timestamp": conv.timestamp.isoformat(),
-                    "branch": conv.branch_name,
-                    "prompt": conv.prompt_text[:100] + ("..." if len(conv.prompt_text) > 100 else ""),
-                    "response": conv.response_text[:100] + ("..." if len(conv.response_text) > 100 else ""),
-                    "commit_included": conv.commit_included,
-                    "commit_hash": conv.final_commit_hash
-                })
-        
-        return [types.TextContent(
-            type="text",
-            text=json.dumps({
-                "repo_path": repo_path,
-                "total_conversations": len(history),
-                "conversations": history
-            }, indent=2)
-        )]
-        
-    except Exception as e:
-        return [types.TextContent(
-            type="text",
-            text=json.dumps({
-                "error": f"Failed to get history: {str(e)}"
-            })
-        )]
-
-
-async def handle_install_git_hooks(arguments: dict) -> list[types.TextContent]:
-    """Install git hooks for automatic AI conversation tracking."""
-    try:
-        repo_path = os.path.abspath(arguments.get("repo_path", "."))
-        
-        # Import git hooks module
-        from .git_hooks import install_git_hooks
-        
-        # Install hooks
-        success = install_git_hooks(repo_path)
-        
-        if success:
-            return [types.TextContent(
-                type="text",
-                text=json.dumps({
-                    "success": True,
-                    "message": "Git hooks installed successfully",
-                    "repo_path": repo_path,
-                    "hooks": ["prepare-commit-msg", "post-commit"],
-                    "description": "Commits will now automatically include AI conversation provenance"
-                }, indent=2)
-            )]
-        else:
-            return [types.TextContent(
-                type="text",
-                text=json.dumps({
-                    "error": "Failed to install git hooks",
-                    "repo_path": repo_path
-                })
-            )]
-        
-    except Exception as e:
-        return [types.TextContent(
-            type="text",
-            text=json.dumps({
-                "error": f"Failed to install git hooks: {str(e)}"
-            })
-        )]
-
-
-def _get_current_branch(repo_path: str) -> str:
-    """Get current git branch."""
-    try:
-        import subprocess
-        result = subprocess.run(
-            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-            cwd=repo_path,
-            capture_output=True,
-            text=True
-        )
-        if result.returncode == 0:
-            return result.stdout.strip()
-    except:
-        pass
-    return "main"
-
-
 async def main():
-    """Run the MCP server."""
-    async with mcp.server.stdio.stdio_server(app) as (read_stream, write_stream):
-        await app.run(read_stream, write_stream, InitializationOptions())
+    async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
+        await app.run(
+            read_stream,
+            write_stream,
+            InitializationOptions(
+                server_name="simple-ai-provenance",
+                server_version="3.0.0",
+                capabilities={},
+            ),
+        )
+
+
+def run() -> None:
+    """Sync entry point for pip-installed console script."""
+    import asyncio
+    asyncio.run(main())
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    run()

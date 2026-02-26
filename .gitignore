@@ -1,3 +1,17 @@
+# Local / generated
+.claude/
+venv/
+*.local
+claude_desktop_config.json
+/hook_record_prompt.py
+/git_hooks_helper.py
+/monitor_service.py
+/setup_config.py
+/start_intelligent_monitor.py
+test_*.py
+test-*.py
+*.txt
+
 # Python
 __pycache__/
 *.py[cod]
