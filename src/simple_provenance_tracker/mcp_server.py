@@ -110,6 +110,28 @@ async def handle_list_tools() -> list[types.Tool]:
             },
         ),
         types.Tool(
+            name="generate_pr_description",
+            description=(
+                "Generate an AI provenance block for a PR body. "
+                "Aggregates all prompts across every commit on the current branch "
+                "since it diverged from base_branch."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "base_branch": {
+                        "type": "string",
+                        "description": "Branch to diff against (default: main).",
+                        "default": "main",
+                    },
+                    "repo_path": {
+                        "type": "string",
+                        "description": "Git repo path. Auto-detects from cwd if omitted.",
+                    },
+                },
+            },
+        ),
+        types.Tool(
             name="configure",
             description=(
                 "Get or set provenance settings. "
@@ -144,6 +166,8 @@ async def handle_call_tool(name: str, arguments: dict) -> list[types.TextContent
         return await tool_handlers.handle_mark_committed(arguments)
     elif name == "list_sessions":
         return await tool_handlers.handle_list_sessions(arguments)
+    elif name == "generate_pr_description":
+        return await tool_handlers.handle_generate_pr_description(arguments)
     elif name == "configure":
         return await tool_handlers.handle_configure(arguments)
     else:

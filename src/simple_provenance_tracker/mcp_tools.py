@@ -97,6 +97,92 @@ def _git_changed_files(repo_path: str) -> List[str]:
     return []
 
 
+def _get_pr_commits(repo_path: str, base_branch: str) -> List[dict]:
+    """All commits on HEAD not reachable from base_branch."""
+    try:
+        r = subprocess.run(
+            ["git", "log", f"{base_branch}..HEAD", "--format=%H|%s|%ai"],
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        commits = []
+        for line in r.stdout.strip().splitlines():
+            parts = line.split("|", 2)
+            if len(parts) == 3:
+                commits.append({"hash": parts[0], "subject": parts[1], "date": parts[2]})
+        return commits
+    except Exception:
+        return []
+
+
+def _git_diff_files_vs_base(repo_path: str, base_branch: str) -> List[str]:
+    """Files changed between base_branch and HEAD (three-dot diff)."""
+    try:
+        r = subprocess.run(
+            ["git", "diff", "--name-only", f"{base_branch}...HEAD"],
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        return [f for f in r.stdout.strip().splitlines() if f]
+    except Exception:
+        return []
+
+
+def build_pr_body(repo_path: str, base_branch: str = "main") -> str:
+    """Generate the AI provenance block for a PR body. Usable by both MCP and CLI."""
+    repo_path = _detect_repo(repo_path)
+    commits = _get_pr_commits(repo_path, base_branch)
+    commit_hashes = [c["hash"] for c in commits]
+
+    committed_prompts = db.get_prompts_for_commits(commit_hashes)
+    uncommitted_prompts = db.get_uncommitted_prompts(repo_path)
+    all_prompts = list(committed_prompts) + list(uncommitted_prompts)
+
+    files_changed = _git_diff_files_vs_base(repo_path, base_branch)
+    branch = _current_branch(repo_path)
+
+    lines = [
+        "## AI Provenance",
+        "",
+        f"**Branch:** `{branch}` → `{base_branch}`  ",
+        f"**Commits:** {len(commits)}  |  **AI prompts:** {len(all_prompts)}  |  **Files changed:** {len(files_changed)}",
+        "",
+    ]
+
+    if not all_prompts:
+        lines.append("_No AI prompts recorded for this branch._")
+    else:
+        sessions_seen: Dict[str, List] = {}
+        for p in all_prompts:
+            sessions_seen.setdefault(p["session_id"], []).append(p)
+
+        for idx, (sid, ps) in enumerate(sessions_seen.items(), 1):
+            started = _fmt_ts(ps[0]["session_started"] or ps[0]["timestamp"])
+            lines.append(f"### Session {idx} — {started} (`{sid[:8]}`)")
+            for p in ps:
+                text = p["prompt_text"]
+                if len(text) > 120:
+                    text = text[:117] + "..."
+                lines.append(f"- {text}")
+            lines.append("")
+
+    if files_changed:
+        display = files_changed[:20]
+        lines.append(f"**Files changed:** {', '.join(display)}")
+        if len(files_changed) > 20:
+            lines.append(f"_...and {len(files_changed) - 20} more_")
+        lines.append("")
+
+    lines.append(
+        f"_Tracked by simple-ai-provenance | {len(all_prompts)} prompt(s) across {len(commits)} commit(s)_"
+    )
+    return "\n".join(lines)
+
+
 def _fmt_ts(ts: str) -> str:
     """Format ISO timestamp to readable local form."""
     try:
@@ -307,6 +393,16 @@ class MCPToolHandlers:
                 for s in sessions
             ],
         })
+
+    # ------------------------------------------------------------------
+    # generate_pr_description
+    # ------------------------------------------------------------------
+    async def handle_generate_pr_description(self, args: Dict[str, Any]) -> List[types.TextContent]:
+        """Generate an AI provenance block ready to paste into a PR body."""
+        repo_path = _detect_repo(args.get("repo_path") or os.getcwd())
+        base_branch = args.get("base_branch", "main")
+        body = build_pr_body(repo_path, base_branch)
+        return [types.TextContent(type="text", text=body)]
 
     # ------------------------------------------------------------------
     # configure

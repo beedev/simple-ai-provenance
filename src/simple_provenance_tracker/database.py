@@ -172,6 +172,27 @@ def list_sessions(repo_path: str, limit: int = 10) -> List[sqlite3.Row]:
         conn.close()
 
 
+def get_prompts_for_commits(commit_hashes: List[str]) -> List[sqlite3.Row]:
+    """All prompts attributed to a set of commit hashes (for PR-level rollup)."""
+    if not commit_hashes:
+        return []
+    placeholders = ",".join("?" * len(commit_hashes))
+    conn = _connect()
+    try:
+        return conn.execute(
+            f"""
+            SELECT p.*, s.started_at AS session_started
+            FROM   prompts p
+            LEFT JOIN sessions s USING (session_id)
+            WHERE  p.commit_hash IN ({placeholders})
+            ORDER  BY p.timestamp ASC
+            """,
+            commit_hashes,
+        ).fetchall()
+    finally:
+        conn.close()
+
+
 def mark_committed(repo_path: str, commit_hash: str) -> int:
     """Mark all uncommitted prompts for a repo as committed. Returns count updated."""
     conn = _connect()
