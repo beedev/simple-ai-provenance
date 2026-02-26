@@ -1,7 +1,7 @@
 """MCP Server for AI Provenance Tracking."""
 
 import mcp.types as types
-from mcp.server import Server
+from mcp.server import Server, NotificationOptions
 from mcp.server.models import InitializationOptions
 import mcp.server.stdio
 
@@ -158,7 +158,10 @@ async def main():
             InitializationOptions(
                 server_name="simple-ai-provenance",
                 server_version="3.0.0",
-                capabilities={},
+                capabilities=app.get_capabilities(
+                    notification_options=NotificationOptions(),
+                    experimental_capabilities={},
+                ),
             ),
         )
 
