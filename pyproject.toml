@@ -11,16 +11,30 @@ authors = [
 ]
 readme = "README.md"
 requires-python = ">=3.9"
-license = {text = "MIT"}
+license = "AGPL-3.0-or-later"
 keywords = ["mcp", "ai", "provenance", "claude", "git"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Version Control :: Git",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
 dependencies = [
     "mcp>=1.0.0"
 ]
 
+[project.urls]
+Homepage = "https://github.com/beedev/simple-ai-provenance"
+Repository = "https://github.com/beedev/simple-ai-provenance"
+Issues = "https://github.com/beedev/simple-ai-provenance/issues"
+
 [project.scripts]
-# MCP server — used by Claude Desktop / Claude Code MCP config
 simple-ai-provenance = "simple_provenance_tracker.mcp_server:run"
-# One-command installer
 provenance-setup      = "simple_provenance_tracker.install:main"
 
 [project.optional-dependencies]
