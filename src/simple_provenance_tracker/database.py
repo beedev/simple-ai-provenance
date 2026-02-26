@@ -52,6 +52,16 @@ def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_prompts_uncommitted
                 ON prompts(repo_path, committed)
                 WHERE committed = 0;
+
+            CREATE TABLE IF NOT EXISTS prompt_repos (
+                prompt_id   TEXT NOT NULL,
+                repo_path   TEXT NOT NULL,
+                branch_name TEXT NOT NULL DEFAULT '',
+                PRIMARY KEY (prompt_id, repo_path)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_prompt_repos_repo
+                ON prompt_repos(repo_path);
         """)
         conn.commit()
     finally:
@@ -167,6 +177,38 @@ def list_sessions(repo_path: str, limit: int = 10) -> List[sqlite3.Row]:
             LIMIT  ?
             """,
             (repo_path, limit),
+        ).fetchall()
+    finally:
+        conn.close()
+
+
+def add_prompt_repo(prompt_id: str, repo_path: str, branch_name: str) -> None:
+    """Record that a prompt touched files in a repo other than its session's primary repo."""
+    conn = _connect()
+    try:
+        conn.execute(
+            "INSERT OR IGNORE INTO prompt_repos (prompt_id, repo_path, branch_name) VALUES (?, ?, ?)",
+            (prompt_id, repo_path, branch_name),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_cross_repo_prompts(repo_path: str) -> List[sqlite3.Row]:
+    """Prompts that touched files in repo_path even though the session started elsewhere."""
+    conn = _connect()
+    try:
+        return conn.execute(
+            """
+            SELECT p.*, s.started_at AS session_started
+            FROM   prompt_repos pr
+            JOIN   prompts p USING (prompt_id)
+            LEFT JOIN sessions s USING (session_id)
+            WHERE  pr.repo_path = ?
+            ORDER  BY p.timestamp ASC
+            """,
+            (repo_path,),
         ).fetchall()
     finally:
         conn.close()

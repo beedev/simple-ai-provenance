@@ -140,7 +140,17 @@ def build_pr_body(repo_path: str, base_branch: str = "main") -> str:
 
     committed_prompts = db.get_prompts_for_commits(commit_hashes)
     uncommitted_prompts = db.get_uncommitted_prompts(repo_path)
-    all_prompts = list(committed_prompts) + list(uncommitted_prompts)
+    cross_repo_prompts = db.get_cross_repo_prompts(repo_path)
+
+    # Merge all sources, deduplicate by prompt_id, preserve chronological order
+    seen: set = set()
+    all_prompts = []
+    for p in list(committed_prompts) + list(uncommitted_prompts) + list(cross_repo_prompts):
+        pid = p["prompt_id"]
+        if pid not in seen:
+            seen.add(pid)
+            all_prompts.append(p)
+    all_prompts.sort(key=lambda p: p["timestamp"])
 
     files_changed = _git_diff_files_vs_base(repo_path, base_branch)
     branch = _current_branch(repo_path)

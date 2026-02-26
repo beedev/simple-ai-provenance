@@ -60,6 +60,16 @@ def _init_db(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_prompts_uncommitted
             ON prompts(repo_path, committed)
             WHERE committed = 0;
+
+        CREATE TABLE IF NOT EXISTS prompt_repos (
+            prompt_id   TEXT NOT NULL,
+            repo_path   TEXT NOT NULL,
+            branch_name TEXT NOT NULL DEFAULT '',
+            PRIMARY KEY (prompt_id, repo_path)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_prompt_repos_repo
+            ON prompt_repos(repo_path);
     """)
 
 

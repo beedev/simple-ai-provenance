@@ -72,31 +72,57 @@ def setup_config() -> None:
 
 
 def setup_claude_hook() -> None:
-    """Register UserPromptSubmit hook in ~/.claude/settings.json."""
+    """Register UserPromptSubmit and PostToolUse hooks in ~/.claude/settings.json."""
     cfg = _load_json(CLAUDE_SETTINGS)
     cfg.setdefault("hooks", {})
+
+    # ── UserPromptSubmit ──────────────────────────────────────────────────────
     cfg["hooks"].setdefault("UserPromptSubmit", [])
+    prompt_command = f"{PYTHON} -m simple_provenance_tracker.hook_record_prompt"
 
-    hook_command = f"{PYTHON} -m simple_provenance_tracker.hook_record_prompt"
-
-    # Check if already registered; update the command if Python path changed
+    prompt_found = False
     for block in cfg["hooks"]["UserPromptSubmit"]:
         for h in block.get("hooks", []):
             if "simple_provenance_tracker.hook_record_prompt" in h.get("command", ""):
-                if h["command"] != hook_command:
-                    h["command"] = hook_command
-                    _save_json(CLAUDE_SETTINGS, cfg)
-                    print(f"  ✓ Hook updated (new Python path)")
+                if h["command"] != prompt_command:
+                    h["command"] = prompt_command
+                    print(f"  ✓ UserPromptSubmit hook updated (new Python path)")
                 else:
-                    print(f"  ✓ Hook already registered")
-                return
+                    print(f"  ✓ UserPromptSubmit hook already registered")
+                prompt_found = True
+                break
 
-    # Not found — insert at the front
-    cfg["hooks"]["UserPromptSubmit"].insert(0, {
-        "hooks": [{"type": "command", "command": hook_command, "timeout": 5}]
-    })
+    if not prompt_found:
+        cfg["hooks"]["UserPromptSubmit"].insert(0, {
+            "hooks": [{"type": "command", "command": prompt_command, "timeout": 5}]
+        })
+        print(f"  ✓ UserPromptSubmit hook registered")
+
+    # ── PostToolUse ───────────────────────────────────────────────────────────
+    cfg["hooks"].setdefault("PostToolUse", [])
+    post_command = f"{PYTHON} -m simple_provenance_tracker.hook_post_tool"
+    post_matcher = "Write|Edit|MultiEdit|NotebookEdit"
+
+    post_found = False
+    for block in cfg["hooks"]["PostToolUse"]:
+        for h in block.get("hooks", []):
+            if "simple_provenance_tracker.hook_post_tool" in h.get("command", ""):
+                if h["command"] != post_command:
+                    h["command"] = post_command
+                    print(f"  ✓ PostToolUse hook updated (new Python path)")
+                else:
+                    print(f"  ✓ PostToolUse hook already registered")
+                post_found = True
+                break
+
+    if not post_found:
+        cfg["hooks"]["PostToolUse"].insert(0, {
+            "matcher": post_matcher,
+            "hooks": [{"type": "command", "command": post_command, "timeout": 5}]
+        })
+        print(f"  ✓ PostToolUse hook registered")
+
     _save_json(CLAUDE_SETTINGS, cfg)
-    print(f"  ✓ Hook registered in {CLAUDE_SETTINGS}")
 
 
 def setup_mcp_server() -> None:
