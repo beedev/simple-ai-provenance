@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "simple-ai-provenance"
-version = "3.0.1"
+version = "3.1.0"
 description = "Track AI prompts per session and annotate git commits with provenance"
 authors = [
     {name = "Bharath Devanathan"}
@@ -36,6 +36,7 @@ Issues = "https://github.com/beedev/simple-ai-provenance/issues"
 [project.scripts]
 simple-ai-provenance = "simple_provenance_tracker.mcp_server:run"
 provenance-setup      = "simple_provenance_tracker.install:main"
+sap-pr                = "simple_provenance_tracker.cli:pr_create_main"
 
 [project.optional-dependencies]
 dev = [
