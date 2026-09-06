@@ -29,6 +29,13 @@ from pathlib import Path
 
 DB_PATH = Path.home() / ".claude" / "provenance" / "provenance.db"
 
+try:
+    from ._meta import is_meta_prompt
+except Exception:                                   # pragma: no cover
+    # This hook must never crash — a broken import must not cost a recording.
+    def is_meta_prompt(text: str) -> bool:
+        return not text
+
 
 def _init_db(conn: sqlite3.Connection) -> None:
     conn.executescript("""
@@ -135,13 +142,7 @@ def _get_prompt_from_transcript(transcript_path: str) -> str:
 
 
 def _is_meta(text: str) -> bool:
-    prefixes = (
-        "[Request interrupted",
-        "The user doesn't want to proceed",
-        "[Skipping",
-        "<system-reminder>",
-    )
-    return any(text.startswith(p) for p in prefixes)
+    return is_meta_prompt(text)
 
 
 def main() -> None:
@@ -162,7 +163,10 @@ def main() -> None:
     if not prompt_text and transcript_path:
         prompt_text = _get_prompt_from_transcript(transcript_path)
 
-    if not prompt_text or not session_id:
+    # The direct `prompt` field was never checked — only the transcript
+    # fallback was. That is how 577 `<task-notification>` entries reached the
+    # audit trail. Both paths are filtered now.
+    if not prompt_text or not session_id or _is_meta(prompt_text):
         return
 
     repo_path, branch = _get_repo_info(cwd)

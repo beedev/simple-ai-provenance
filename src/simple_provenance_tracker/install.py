@@ -7,9 +7,10 @@ After `pip install simple-ai-provenance`, run:
 This script:
   1. Creates the default config file
   2. Registers the UserPromptSubmit hook in Claude Code settings
-  3. Registers the MCP server in Claude Desktop config
-  4. Installs global git hooks (prepare-commit-msg, post-commit)
-  5. Verifies the installation
+  3. Registers the MCP server in ~/.claude.json (Claude Code CLI)
+  4. Registers the MCP server in Claude Desktop config
+  5. Installs global git hooks (prepare-commit-msg, post-commit)
+  6. Verifies the installation
 """
 
 import json
@@ -51,7 +52,8 @@ def _save_json(path: Path, data: dict) -> None:
 
 
 def _mark_executable(path: Path) -> None:
-    path.chmod(path.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+    if platform.system() != "Windows":
+        path.chmod(path.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
 
 
 # ── Setup steps ───────────────────────────────────────────────────────────────
@@ -122,10 +124,31 @@ def setup_claude_hook() -> None:
         })
         print(f"  ✓ PostToolUse hook registered")
 
-    _save_json(CLAUDE_SETTINGS, cfg)
+    try:
+        _save_json(CLAUDE_SETTINGS, cfg)
+    except PermissionError:
+        print(f"  ! Could not write {CLAUDE_SETTINGS} — is Claude Code running?")
+        print(f"    Close Claude Code, then re-run: provenance-setup")
 
 
-def setup_mcp_server() -> None:
+def setup_claude_code_mcp() -> None:
+    """Register MCP server in ~/.claude.json for Claude Code CLI."""
+    claude_json = Path.home() / ".claude.json"
+    cfg = _load_json(claude_json)
+    cfg.setdefault("mcpServers", {})
+    cfg["mcpServers"]["simple-ai-provenance"] = {
+        "command": PYTHON,
+        "args": ["-m", "simple_provenance_tracker.mcp_server"],
+    }
+    try:
+        _save_json(claude_json, cfg)
+        print(f"  ✓ MCP server registered in {claude_json}")
+    except PermissionError:
+        print(f"  ! Could not write {claude_json} — is Claude Code running?")
+        print(f"    Close Claude Code, then re-run: provenance-setup")
+
+
+def setup_desktop_mcp() -> None:
     """Register MCP server in Claude Desktop config."""
     if CLAUDE_DESKTOP is None:
         print(f"  ⚠ Unsupported OS for Claude Desktop: {platform.system()}")
@@ -148,20 +171,38 @@ def setup_git_hooks() -> None:
     """Write prepare-commit-msg and post-commit into the global hooks dir."""
     GIT_HOOKS_DIR.mkdir(parents=True, exist_ok=True)
 
-    helper = f"{PYTHON} -m simple_provenance_tracker.git_hooks_helper"
+    # Use Python hook scripts for cross-platform compatibility (Windows + macOS + Linux)
+    # Forward slashes work in Python on all platforms, avoids backslash escaping issues
+    python_path = PYTHON.replace("\\", "/")
 
     prepare = GIT_HOOKS_DIR / "prepare-commit-msg"
     prepare.write_text(
-        f"""#!/usr/bin/env bash
-# simple-ai-provenance: append provenance block to commit message
-# $1=commit-msg-file  $2=commit-source (merge/squash/commit → skip)
-case "${{2:-}}" in merge|squash|commit) exit 0 ;; esac
-REPO="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-{helper} prepare-commit-msg "$1" "$REPO"
-# Pass through to repo-level hook if present
-[[ -x "$REPO/.git/hooks/prepare-commit-msg.local" ]] && \\
-    "$REPO/.git/hooks/prepare-commit-msg.local" "$@"
-exit 0
+        f"""#!/usr/bin/env python3
+\"\"\"simple-ai-provenance: append provenance block to commit message.\"\"\"
+import os, subprocess, sys
+commit_msg_file = sys.argv[1]
+commit_source = sys.argv[2] if len(sys.argv) > 2 else ""
+if commit_source in ("merge", "squash", "commit"):
+    sys.exit(0)
+try:
+    repo = subprocess.run(
+        ["git", "rev-parse", "--show-toplevel"],
+        capture_output=True, text=True, timeout=5,
+    ).stdout.strip() or os.getcwd()
+    subprocess.run(
+        ["{python_path}", "-m", "simple_provenance_tracker.git_hooks_helper",
+         "prepare-commit-msg", commit_msg_file, repo],
+        timeout=10,
+    )
+except Exception:
+    pass  # never block a commit
+# Chain to repo-level hook if present
+try:
+    local_hook = os.path.join(repo, ".git", "hooks", "prepare-commit-msg.local")
+    if os.path.isfile(local_hook) and os.access(local_hook, os.X_OK):
+        subprocess.run([local_hook] + sys.argv[1:], timeout=10)
+except Exception:
+    pass
 """,
         encoding="utf-8",
     )
@@ -169,13 +210,32 @@ exit 0
 
     post = GIT_HOOKS_DIR / "post-commit"
     post.write_text(
-        f"""#!/usr/bin/env bash
-# simple-ai-provenance: mark prompts as committed
-REPO="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-HASH="$(git rev-parse HEAD 2>/dev/null)"
-{helper} post-commit "$REPO" "$HASH"
-[[ -x "$REPO/.git/hooks/post-commit.local" ]] && "$REPO/.git/hooks/post-commit.local"
-exit 0
+        f"""#!/usr/bin/env python3
+\"\"\"simple-ai-provenance: mark prompts as committed.\"\"\"
+import os, subprocess, sys
+try:
+    repo = subprocess.run(
+        ["git", "rev-parse", "--show-toplevel"],
+        capture_output=True, text=True, timeout=5,
+    ).stdout.strip() or os.getcwd()
+    commit_hash = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        capture_output=True, text=True, timeout=5,
+    ).stdout.strip()
+    subprocess.run(
+        ["{python_path}", "-m", "simple_provenance_tracker.git_hooks_helper",
+         "post-commit", repo, commit_hash],
+        timeout=10,
+    )
+except Exception:
+    pass  # never block a commit
+# Chain to repo-level hook if present
+try:
+    local_hook = os.path.join(repo, ".git", "hooks", "post-commit.local")
+    if os.path.isfile(local_hook) and os.access(local_hook, os.X_OK):
+        subprocess.run([local_hook], timeout=10)
+except Exception:
+    pass
 """,
         encoding="utf-8",
     )
@@ -200,7 +260,8 @@ def verify() -> None:
 
     for name in ("prepare-commit-msg", "post-commit"):
         p = GIT_HOOKS_DIR / name
-        ok = p.exists() and os.access(p, os.X_OK)
+        # On Windows os.access(X_OK) is unreliable; just check file exists
+        ok = p.exists() and (platform.system() == "Windows" or os.access(p, os.X_OK))
         print(f"  {'✓' if ok else '✗'} Git hook: {name}")
 
     hook_ok = CLAUDE_SETTINGS.exists() and "hook_record_prompt" in CLAUDE_SETTINGS.read_text()
@@ -214,16 +275,19 @@ def main() -> None:
     print(f"Python: {PYTHON}")
     print()
 
-    print("[1/4] Config file")
+    print("[1/5] Config file")
     setup_config()
 
-    print("[2/4] Claude Code hook  (prompt auto-capture)")
+    print("[2/5] Claude Code hook  (prompt auto-capture)")
     setup_claude_hook()
 
-    print("[3/4] Claude Desktop    (MCP tools)")
-    setup_mcp_server()
+    print("[3/5] Claude Code MCP   (MCP tools in CLI)")
+    setup_claude_code_mcp()
 
-    print("[4/4] Git hooks         (commit annotation)")
+    print("[4/5] Claude Desktop    (MCP tools in Desktop app)")
+    setup_desktop_mcp()
+
+    print("[5/5] Git hooks         (commit annotation)")
     setup_git_hooks()
 
     print()
