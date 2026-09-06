@@ -1,0 +1,61 @@
+name: Publish to PyPI
+
+# Releases are cut by pushing a tag, so publishing never depends on which
+# machine you are sitting at:
+#
+#     git tag v3.2.0 && git push origin v3.2.0
+#
+# No API token is stored anywhere. PyPI is configured to trust this workflow
+# in this repository (Trusted Publishing), and GitHub hands it a short-lived
+# OIDC identity at run time. That is what `id-token: write` below grants.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:        # lets you run it by hand from the Actions tab
+
+jobs:
+  build:
+    name: Build distributions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Build wheel and sdist
+        run: |
+          python -m pip install --upgrade pip build twine
+          python -m build
+          twine check dist/*
+
+      - name: Fail if the tag does not match the version in pyproject.toml
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          VERSION=$(python -c "import tomllib;print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          echo "tag=$TAG  pyproject=$VERSION"
+          test "$TAG" = "$VERSION"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    name: Upload to PyPI
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi          # must match the environment named on PyPI
+    permissions:
+      id-token: write          # the OIDC token that replaces a password
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - uses: pypa/gh-action-pypi-publish@release/v1
